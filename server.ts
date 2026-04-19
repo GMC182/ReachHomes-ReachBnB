@@ -553,7 +553,7 @@ async function startServer() {
     });
 
     // Expert 54: SPA fallback for production (excluding /api)
-    app.get('*', (req, res, next) => {
+    app.get('/{*path}', (req, res, next) => {
       const isApi = req.url.startsWith('/api') || req.path.startsWith('/api');
       if (isApi) {
         console.warn(`[Server] SPA fallback intercepted API request: ${req.method} ${req.url}`);
