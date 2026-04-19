@@ -394,24 +394,48 @@ class DatabaseService {
     }, 1000);
   }
 
-  public async loadState(retries = 5): Promise<boolean> {
+  public async loadState(retries = 8): Promise<boolean> {
     if (this.isSaving) return false;
     for (let i = 0; i < retries; i++) {
       try {
         const response = await fetch('/api/state');
         
-        // Expert 44: Handle 503 (Initializing) gracefully
-        if (response.status === 503) {
-          console.warn('Database is still initializing, retrying...');
-          await new Promise(resolve => setTimeout(resolve, 3000));
+        // Expert 45: Handle 429 (Rate Limit) by waiting longer
+        if (response.status === 429) {
+          console.warn(`[DB] Rate limit hit. Waiting 30s before retry ${i + 1}/${retries}...`);
+          await new Promise(resolve => setTimeout(resolve, 30000));
           continue;
         }
 
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        // Expert 44: Handle 503 (Initializing) gracefully
+        if (response.status === 503) {
+          console.warn(`[DB] Database is still initializing, waiting 5s before retry ${i + 1}/${retries}...`);
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          continue;
+        }
+
+        if (!response.ok) {
+          // If we see HTML during a 200 or other, it's likely a boot shell
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('text/html')) {
+            console.warn(`[DB] Received HTML response (Status: ${response.status}). The server might be booting. Waiting 5s...`);
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            continue;
+          }
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
         
         const contentType = response.headers.get('content-type');
         if (!contentType || !contentType.includes('application/json')) {
           const text = await response.text();
+          
+          // Special check for common boot/error titles in HTML
+          if (text.includes('<title>Starting Server') || text.includes('Taking a moment')) {
+            console.warn(`[DB] Server boot page detected. Waiting 10s for backend to normalize...`);
+            await new Promise(resolve => setTimeout(resolve, 10000));
+            continue;
+          }
+
           console.error(`[DB] Unexpected Response Format (Expected JSON):
 Status: ${response.status} ${response.statusText}
 Content-Type: ${contentType}

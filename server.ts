@@ -39,14 +39,19 @@ app.use(compression());
 
 // Expert 42: Rate Limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  limit: 2000, // Increased limit
+  windowMs: 10 * 60 * 1000, // 10 minutes
+  limit: 5000, // Increased limit to prevent startup blocks
   standardHeaders: 'draft-7',
   legacyHeaders: false,
+  skip: (req) => {
+    // Skip rate limiting for local health checks if needed
+    return req.ip === '127.0.0.1' || req.path === '/api/health';
+  },
   handler: (req, res) => {
+    console.warn(`[RateLimit] Triggered for ${req.ip} - ${req.method} ${req.url}`);
     res.status(429).json({
       error: 'Too many requests',
-      message: 'Please try again in a few minutes.'
+      message: 'The server is currently processing a high volume of requests. Please try again in 30 seconds.'
     });
   }
 });
@@ -191,10 +196,10 @@ async function initDatabase(retries = 5) {
           password: process.env.DB_PASSWORD,
           database: process.env.DB_NAME,
           waitForConnections: true,
-          connectionLimit: 10,
+          connectionLimit: 20, // Increased for stability
           queueLimit: 0,
           multipleStatements: true,
-          connectTimeout: 30000, // 30 seconds
+          connectTimeout: 60000, // 60 seconds for initial handshake
         });
         
         // Test the connection immediately
@@ -470,6 +475,16 @@ apiRouter.use((req, res) => {
 
 // Mount the API Router
 app.use('/api', apiRouter);
+
+// Expert 63: Final API Guardian - Catch-all for /api that missed the apiRouter
+// This prevents falling through to Vite or SPA fallback with HTML responses
+app.use('/api', (req, res) => {
+  res.status(404).json({
+    error: 'API endpoint not found',
+    path: req.originalUrl,
+    timestamp: new Date().toISOString()
+  });
+});
 
 // --- ERROR HANDLING ---
 
