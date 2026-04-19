@@ -16,7 +16,7 @@ import helmet from 'helmet';
 import { rateLimit } from 'express-rate-limit';
 import { z } from 'zod';
 import Database from 'better-sqlite3';
-import mysql, { Pool, Connection } from 'mysql2/promise';
+import mysql from 'mysql2/promise';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import 'dotenv/config';
@@ -40,11 +40,16 @@ app.use(compression());
 // Expert 42: Rate Limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  limit: 1000, // Limit each IP to 1000 requests per window
+  limit: 2000, // Increased limit
   standardHeaders: 'draft-7',
   legacyHeaders: false,
+  handler: (req, res) => {
+    res.status(429).json({
+      error: 'Too many requests',
+      message: 'Please try again in a few minutes.'
+    });
+  }
 });
-app.use('/api', limiter);
 
 // Database connection interface
 interface DB {
@@ -189,7 +194,7 @@ async function initDatabase(retries = 5) {
           connectionLimit: 10,
           queueLimit: 0,
           multipleStatements: true,
-          connectTimeout: 20000, // 20 seconds
+          connectTimeout: 30000, // 30 seconds
         });
         
         // Test the connection immediately
@@ -209,20 +214,20 @@ async function initDatabase(retries = 5) {
         console.warn(`[DB] MySQL attempt ${attempt} failed:`, error instanceof Error ? error.message : error);
         
         if (attempt < retries) {
-          const delay = Math.min(Math.pow(2, attempt) * 1000, 30000);
-          console.log(`[DB] Retrying in ${delay}ms...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-        } else {
-          console.error('[DB] All MySQL connection attempts failed. Falling back to SQLite.');
-          isMySQL = false;
-          setupSQLite();
-        }
+          const delay = Math.min(Math.pow(2, attempt) * 1000, 45000); // 45s max delay
+        console.log(`[DB] Retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+        console.error('[DB] All MySQL connection attempts failed. Falling back to SQLite.');
+        isMySQL = false;
+        setupSQLite();
       }
     }
-  } else {
-    isMySQL = false;
-    setupSQLite();
   }
+} else {
+  isMySQL = false;
+  setupSQLite();
+}
 }
 
 function setupSQLite() {
@@ -236,12 +241,19 @@ function setupSQLite() {
 
 /**
  * Middleware Configuration
- * - cors: Enables Cross-Origin Resource Sharing.
- * - express.json: Parses incoming JSON requests.
  */
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// Expert 61: API Guardian - Force JSON headers for all /api calls early
+app.use('/api', (req, res, next) => {
+  res.setHeader('Content-Type', 'application/json');
+  next();
+});
+
+// Expert 62: Apply rate limit AFTER parser but BEFORE router
+app.use('/api', limiter);
 
 // Expert 37: Simple Request Logger
 app.use((req, res, next) => {

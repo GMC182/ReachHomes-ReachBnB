@@ -412,8 +412,11 @@ class DatabaseService {
         const contentType = response.headers.get('content-type');
         if (!contentType || !contentType.includes('application/json')) {
           const text = await response.text();
-          console.error(`Expected JSON but got ${contentType}. Body: ${text.substring(0, 100)}...`);
-          throw new Error('Response was not JSON');
+          console.error(`[DB] Unexpected Response Format (Expected JSON):
+Status: ${response.status} ${response.statusText}
+Content-Type: ${contentType}
+Body Preview: ${text.substring(0, 200)}...`);
+          throw new Error(`Response was not JSON (Status: ${response.status})`);
         }
 
         const data = await response.json();
