@@ -7,8 +7,9 @@
     "dev": "tsx server.ts",
     "build": "NODE_ENV=production vite build",
     "preview": "vite preview",
-    "start": "NODE_ENV=production node server.ts",
-    "lint": "tsc --noEmit"
+    "start": "NODE_ENV=production npx tsx server.ts",
+    "lint": "tsc --noEmit",
+    "build:prod": "npm run build"
   },
   "dependencies": {
     "autoprefixer": "^10.4.20",
@@ -41,5 +42,8 @@
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }

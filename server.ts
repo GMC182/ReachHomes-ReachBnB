@@ -18,6 +18,7 @@ import { z } from 'zod';
 import Database from 'better-sqlite3';
 import mysql from 'mysql2/promise';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import 'dotenv/config';
 
@@ -244,8 +245,13 @@ async function initDatabase(retries = 3) {
 }
 
 function setupSQLite() {
-  console.log('[DB] Initializing SQLite (reachhomes.db)...');
-  const sqliteDb = new Database('reachhomes.db');
+  // Use /data for Render.com persistent disk, fallback to local in dev
+  const dbDir = process.env.NODE_ENV === 'production' && fs.existsSync('/data')
+    ? '/data'
+    : __dirname;
+  const dbPath = path.join(dbDir, 'reachhomes.db');
+  console.log(`[DB] Initializing SQLite at ${dbPath}...`);
+  const sqliteDb = new Database(dbPath);
   db = sqliteDb as unknown as DB;
   isMySQL = false;
   if (db.exec) db.exec(SCHEMA);
