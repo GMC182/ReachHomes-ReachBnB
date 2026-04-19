@@ -185,21 +185,25 @@ app.get('/healthz', (req, res) => {
  * Checks for MySQL environment variables to decide between MySQL and SQLite.
  * Expert 53: Enhanced Resilience with Connection Timeouts
  */
-async function initDatabase(retries = 5) {
+async function initDatabase(retries = 10) {
   if (process.env.DB_HOST && process.env.DB_USER) {
     for (let attempt = 1; attempt <= retries; attempt++) {
       console.log(`[DB] Connecting to MySQL at ${process.env.DB_HOST} (Attempt ${attempt}/${retries})...`);
+      let pool;
       try {
-        const pool = mysql.createPool({
+        pool = mysql.createPool({
           host: process.env.DB_HOST,
           user: process.env.DB_USER,
           password: process.env.DB_PASSWORD,
           database: process.env.DB_NAME,
+          port: parseInt(process.env.DB_PORT || '3306'),
           waitForConnections: true,
-          connectionLimit: 20, // Increased for stability
+          connectionLimit: 20,
           queueLimit: 0,
           multipleStatements: true,
-          connectTimeout: 60000, // 60 seconds for initial handshake
+          connectTimeout: 60000,
+          enableKeepAlive: true,
+          keepAliveInitialDelay: 10000,
         });
         
         // Test the connection immediately
@@ -207,32 +211,44 @@ async function initDatabase(retries = 5) {
         
         db = pool as unknown as DB;
         console.log('[DB] Connected to MySQL. Initializing schema...');
-        // Convert SQLite/Generic types to MySQL specific ones where needed
         const mysqlSchema = SCHEMA
           .replace(/TEXT/g, 'LONGTEXT')
           .replace(/DOUBLE/g, 'DOUBLE PRECISION');
         await db.query(mysqlSchema);
         isMySQL = true;
         console.log('[DB] MySQL Schema initialized.');
-        return; // Success, exit function
+        return; // Success
       } catch (error) {
-        console.warn(`[DB] MySQL attempt ${attempt} failed:`, error instanceof Error ? error.message : error);
+        console.error(`[DB] MySQL attempt ${attempt} failed:`, error instanceof Error ? {
+          message: error.message,
+          code: (error as any).code,
+          errno: (error as any).errno,
+          syscall: (error as any).syscall
+        } : error);
         
+        if (pool) {
+          try {
+            await pool.end();
+          } catch (e) {
+            // Ignore pool end errors
+          }
+        }
+
         if (attempt < retries) {
-          const delay = Math.min(Math.pow(2, attempt) * 1000, 45000); // 45s max delay
-        console.log(`[DB] Retrying in ${delay}ms...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-      } else {
-        console.error('[DB] All MySQL connection attempts failed. Falling back to SQLite.');
-        isMySQL = false;
-        setupSQLite();
+          const delay = Math.min(Math.pow(2, attempt) * 1000, 30000); // 30s max delay for more frequent retries
+          console.log(`[DB] Retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        } else {
+          console.error('[DB] All MySQL connection attempts failed. Falling back to SQLite.');
+          isMySQL = false;
+          setupSQLite();
+        }
       }
     }
+  } else {
+    isMySQL = false;
+    setupSQLite();
   }
-} else {
-  isMySQL = false;
-  setupSQLite();
-}
 }
 
 function setupSQLite() {
