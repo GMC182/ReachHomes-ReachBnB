@@ -248,7 +248,7 @@ app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
     const duration = Date.now() - start;
-    console.log(`${req.method} ${req.url} ${res.statusCode} - ${duration}ms`);
+    console.log(`[HTTP] ${req.method} ${req.url} ${res.statusCode} - ${duration}ms`);
   });
   next();
 });
@@ -490,6 +490,12 @@ async function startServer() {
       server: { middlewareMode: true },
       appType: 'spa',
     });
+    app.use('/api', (req, res, next) => {
+      // Ensure JSON type and call next. If apiRouter didn't handle it, 
+      // we'll hit the API 404 handler inside apiRouter.
+      res.setHeader('Content-Type', 'application/json');
+      next();
+    });
     app.use(vite.middlewares);
     console.log('[Server] Vite middleware initialized.');
   } else {
@@ -507,9 +513,13 @@ async function startServer() {
 
     // Expert 54: SPA fallback for production (excluding /api)
     app.get('*', (req, res, next) => {
-      // If the request starts with /api but reached here, it means apiRouter didn't handle it
-      if (req.path.startsWith('/api')) {
-        return res.status(404).json({ error: 'API endpoint not found (fallback)' });
+      const isApi = req.url.startsWith('/api') || req.path.startsWith('/api');
+      if (isApi) {
+        console.warn(`[Server] SPA fallback intercepted API request: ${req.method} ${req.url}`);
+        return res.status(404).json({ 
+          error: 'API endpoint not found',
+          details: 'This request reached the SPA fallback handler.'
+        });
       }
 
       if (req.accepts('html')) {
